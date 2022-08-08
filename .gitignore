@@ -291,4 +291,18 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
+# Symlinked Directories
+contracts/access
+contracts/crosschain
+contracts/finance
+contracts/governance
+contracts/interfaces
+contracts/metatx
+contracts/mocks
+contracts/proxy
+contracts/security
+contracts/token
+contracts/utils
+contracts/vendor
+
 # End of https://www.toptal.com/developers/gitignore/api/solidity,python
