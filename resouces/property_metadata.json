@@ -1,0 +1,16 @@
+{
+  "description": "House Located In Carvoeiro. Invisible in the real world, as it only exists on the blockchain",
+  "image": "ipfs://QmWXz59snQzPrvLNEaSVH3CHWCotCKgHv9srkcab6WvS5E",
+  "name": "House In The Middle Of The Street",
+  "attributes": [
+    {
+      "display_type": "date",
+      "trait_type": "Construction Date",
+      "value": 1660264777
+    },
+    {
+      "trait_type": "Location",
+      "value": "37.0961393,-8.4717152,20.59"
+    }
+  ]
+}
