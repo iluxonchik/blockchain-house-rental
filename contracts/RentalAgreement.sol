@@ -2,6 +2,9 @@
 
 pragma solidity ^0.8.15;
 
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "./PropertyRentalStorage.sol";
+
 /* Rental procedure:
 1. Approve RentalAgreement contract to transfer the token
 2. RentalAgreement transfers the token into its possession
@@ -49,6 +52,33 @@ with the Tenant. That credit can be used at any time, either in full or in part 
 When a rental contract ends, all of the remaining credit will be transferred back to the Tenant.
 
 */
+
 contract RentalAgreement {
+    event PropertyRegisteredForRental(address propertyAddr, address ownerAddr);
+
+    uint8 constant TOKEN_ID = 0;
+    PropertyRentalStorage propertyRentalStorage;
+
+    constructor() {
+        propertyRentalStorage = new PropertyRentalStorage();
+    }
+
+    // 1. Register a property for rental. This is the first step to do after approving transfer on the ERC-721
+    function registerPropertyForRental(address propertyAddr) public {
+        IERC721 propertyERC721 = IERC721(propertyAddr);
+        address currentOwner = propertyERC721.ownerOf(TOKEN_ID);
+
+        require(currentOwner != address(this), "Cannot list a property already owned by RentalAgreement. "
+        "Please add RentalAgreement to the approved addressed, and call this "
+        "function again."
+        );
+
+        // attempt to transfer the ownership
+        propertyERC721.transferFrom(currentOwner, address(this), TOKEN_ID);
+
+        // add property to list of properties listed for rental
+        propertyRentalStorage.addProperty(propertyAddr, currentOwner);
+        emit PropertyRegisteredForRental(propertyAddr, currentOwner);
+    }
 
 }
