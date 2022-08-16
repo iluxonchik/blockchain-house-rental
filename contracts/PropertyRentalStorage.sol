@@ -3,6 +3,8 @@
 pragma solidity ^0.8.15;
 
 library MappingDataTypes {
+    enum PropertyStatus { AWAITING_PRICE, READY_FOR_RENT, LISTED_FOR_RENT, RENTED }
+    
     struct AddressMappingValue {
         address value;
         bool isSet;
@@ -11,6 +13,13 @@ library MappingDataTypes {
     struct UintMappingValue {
         uint256 value;
         bool isSet;
+    }
+
+    struct Property {
+        address propertyAddr;
+        uint256 montlyPriceInGwei;
+        PropertyStatus status;
+
     }
 }
 
@@ -36,14 +45,14 @@ contract PropertyRentalStorage {
     // map of property address to its owner
     mapping(address => MappingDataTypes.AddressMappingValue) public propertyAddressToOriginalOwner;
     // all properties listed for rental 
-    address[] public propertiesForRent;
+    MappingDataTypes.Property[] public propertiesForRent;
     // allow to acccess propertiesForRent in O(1)
     mapping(address => MappingDataTypes.UintMappingValue) public propertyAddressToPropertiesForRentIndex;
 
 
     function _addPropertyToRentalMapping(address propertyAddr, address propertyOwnerAddr) internal notInStorage(propertyAddr) {
         propertyAddressToOriginalOwner[propertyAddr] = MappingDataTypes.AddressMappingValue(propertyOwnerAddr, true);
-        propertiesForRent.push(propertyAddr);
+        propertiesForRent.push(MappingDataTypes.Property(propertyAddr, 0, MappingDataTypes.PropertyStatus.AWAITING_PRICE));
         uint256 elemIndex = propertiesForRent.length - 1;
         propertyAddressToPropertiesForRentIndex[propertyAddr] = MappingDataTypes.UintMappingValue(elemIndex, true);
     }
@@ -53,11 +62,11 @@ contract PropertyRentalStorage {
         require(indexToRemove < propertiesForRent.length, "FATAL ERROR: attempting to remove index beyond the size of the array.");
         
         // begin remove properties from list of properties listed for rent
-        address lastProperty = propertiesForRent[propertiesForRent.length - 1];
+        MappingDataTypes.Property memory lastProperty = propertiesForRent[propertiesForRent.length - 1];
         propertiesForRent[indexToRemove] = lastProperty;
         
         // update index of moved property
-        propertyAddressToPropertiesForRentIndex[lastProperty].value = indexToRemove;
+        propertyAddressToPropertiesForRentIndex[lastProperty.propertyAddr].value = indexToRemove;
 
         // remove property from assistive mapping
         propertyAddressToPropertiesForRentIndex[propertyAddr].isSet = false;
