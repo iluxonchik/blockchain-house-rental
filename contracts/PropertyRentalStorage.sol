@@ -17,7 +17,7 @@ library MappingDataTypes {
 
     struct Property {
         address propertyAddr;
-        uint256 montlyPriceInGwei;
+        uint256 monthlyPriceInWei;
         PropertyStatus status;
 
     }
@@ -89,5 +89,15 @@ contract PropertyRentalStorage {
 
     function removeProperty(address propertyAddr) public {
         _removePropertyToRentalMapping(propertyAddr);
+    }
+
+    function getProperty(address propertyAddr) public view isInStorage(propertyAddr) returns (MappingDataTypes.Property memory) {
+        uint256 index = propertyAddressToPropertiesForRentIndex[propertyAddr].value;
+        return propertiesForRent[index];
+    }
+
+    function getPropertyOriginalOwner(address propertyAddr) public view isInStorage(propertyAddr) returns (address){
+        MappingDataTypes.AddressMappingValue memory property = propertyAddressToOriginalOwner[propertyAddr];
+        return property.value;
     }
 }

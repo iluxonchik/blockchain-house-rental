@@ -4,6 +4,7 @@ pragma solidity ^0.8.15;
 
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "./PropertyRentalStorage.sol";
+import {MappingDataTypes} from "./PropertyRentalStorage.sol";
 
 /* Rental procedure:
 1. Approve RentalAgreement contract to transfer the token
@@ -53,14 +54,32 @@ When a rental contract ends, all of the remaining credit will be transferred bac
 
 */
 
+
 contract RentalAgreement {
     event PropertyRegisteredForRental(address propertyAddr, address ownerAddr);
 
     uint8 constant TOKEN_ID = 0;
     PropertyRentalStorage propertyRentalStorage;
 
+    // TODO: not the right place for this
+    mapping(MappingDataTypes.PropertyStatus => string) internal propertyStatusToString;
+
+    modifier isPropertyOwner(address propertyAddr) {
+        require(propertyRentalStorage.getPropertyOriginalOwner(propertyAddr) == msg.sender, "Only owner of the proprety can set its monthly rental price.");
+        _;
+    }
+    modifier isPropertyAdded(address propertyAddr) {
+        require(propertyRentalStorage.isPropertyAdded(propertyAddr), "Property must be added to set its price.");
+        _;
+    }
+
     constructor() {
         propertyRentalStorage = new PropertyRentalStorage();
+        propertyStatusToString[MappingDataTypes.PropertyStatus.AWAITING_PRICE] = "Awaiting Price";
+        propertyStatusToString[MappingDataTypes.PropertyStatus.READY_FOR_RENT] = "Ready For Rent";
+        propertyStatusToString[MappingDataTypes.PropertyStatus.LISTED_FOR_RENT] = "Listed For Rent";
+        propertyStatusToString[MappingDataTypes.PropertyStatus.RENTED] = "Rented";
+        
     }
 
     // 1. Register a property for rental. This is the first step to do after approving transfer on the ERC-721
@@ -79,6 +98,29 @@ contract RentalAgreement {
         // add property to list of properties listed for rental
         propertyRentalStorage.addProperty(propertyAddr, currentOwner);
         emit PropertyRegisteredForRental(propertyAddr, currentOwner);
+    }
+
+    function setPropertyMonthlyRentalPrice(address propertyAddr, uint256 priceInWei) public isPropertyAdded(propertyAddr) isPropertyOwner(propertyAddr)  {
+        // ensure property is listed for rent
+        MappingDataTypes.Property memory property = propertyRentalStorage.getProperty(propertyAddr);
+        if (property.status == MappingDataTypes.PropertyStatus.AWAITING_PRICE) {
+            // no limitations, set the price and mark the property as ready for rent
+            property.monthlyPriceInWei = priceInWei;
+            property.status = MappingDataTypes.PropertyStatus.READY_FOR_RENT;
+        } else if (property.status == MappingDataTypes.PropertyStatus.RENTED) {
+            // TODO: ensure that new price is only sent for 3 months from now on
+        } else {
+            string memory errorMessage = string.concat("Setting price is not allowed when the property is in the '", propertyStatusToString[property.status] , "' state.");
+            revert(errorMessage);
+        }
+    }
+
+    function listPropertyForRent(address propertyAddr) isPropertyAdded(propertyAddr) public isPropertyOwner(propertyAddr) {
+        MappingDataTypes.Property memory property = propertyRentalStorage.getProperty(propertyAddr);
+        string memory errorMessage = string.concat("Property is in '", propertyStatusToString[property.status], "' status and cannot be listed for rent");
+        require(property.status == MappingDataTypes.PropertyStatus.READY_FOR_RENT, errorMessage);
+        // list property for rent
+        property.status = MappingDataTypes.PropertyStatus.LISTED_FOR_RENT;
     }
 
 }
