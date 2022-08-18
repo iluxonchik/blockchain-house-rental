@@ -21,6 +21,12 @@ library MappingDataTypes {
         PropertyStatus status;
 
     }
+
+    struct PropertyApplicant {
+        address applicant;
+        uint256 applicationTime;
+        bool isSet;
+    }
 }
 
 /*
@@ -42,12 +48,27 @@ contract PropertyRentalStorage {
         _;
     }
 
+    modifier notYetApplied(address propertyAddr, address applicantAddr) {
+        require(propertyAddressToPropertyAppplicantsIndex[propertyAddr][applicantAddr].isSet == false, "Applicant already applied to rent this property");
+        _;
+    }
+
+    modifier isListedForRent(address propertyAddr) {
+        require(propertiesForRent[propertyAddressToPropertiesForRentIndex[propertyAddr].value].status == MappingDataTypes.PropertyStatus.LISTED_FOR_RENT, "Property is not listed for rent");
+        _;
+    }
+
     // map of property address to its owner
     mapping(address => MappingDataTypes.AddressMappingValue) public propertyAddressToOriginalOwner;
     // all properties listed for rental 
     MappingDataTypes.Property[] public propertiesForRent;
     // allow to acccess propertiesForRent in O(1)
     mapping(address => MappingDataTypes.UintMappingValue) public propertyAddressToPropertiesForRentIndex;
+    
+    // property address to list of applicants mapping
+    mapping(address => MappingDataTypes.PropertyApplicant[]) public propertyApplicants;
+    // allow access to property applicants in O(1). order: property address, aplicant address
+    mapping(address => mapping(address => MappingDataTypes.UintMappingValue)) public propertyAddressToPropertyAppplicantsIndex;
 
 
     function _addPropertyToRentalMapping(address propertyAddr, address propertyOwnerAddr) internal notInStorage(propertyAddr) {
@@ -99,5 +120,12 @@ contract PropertyRentalStorage {
     function getPropertyOriginalOwner(address propertyAddr) public view isInStorage(propertyAddr) returns (address){
         MappingDataTypes.AddressMappingValue memory property = propertyAddressToOriginalOwner[propertyAddr];
         return property.value;
+    }
+
+    // applicant applies to rent a property
+    function applyForRent(address propertyAddr, address applicantAddr) isInStorage(propertyAddr) isListedForRent(propertyAddr) notYetApplied(propertyAddr, applicantAddr) public {
+        propertyApplicants[propertyAddr].push(MappingDataTypes.PropertyApplicant(applicantAddr, block.timestamp, true));
+        uint256 elemIndex = propertyApplicants[propertyAddr].length - 1;
+        propertyAddressToPropertyAppplicantsIndex[propertyAddr][applicantAddr] = MappingDataTypes.UintMappingValue(elemIndex, true);
     }
 }
