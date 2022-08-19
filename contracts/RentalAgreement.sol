@@ -57,6 +57,8 @@ When a rental contract ends, all of the remaining credit will be transferred bac
 
 contract RentalAgreement {
     event PropertyRegisteredForRental(address propertyAddr, address ownerAddr);
+    event PropertyListedForRent(address propertyAddr);
+    event AppliedForRent(address propertyAddr, address applicantAddr);
 
     uint8 constant TOKEN_ID = 0;
     PropertyRentalStorage propertyRentalStorage;
@@ -70,6 +72,11 @@ contract RentalAgreement {
     }
     modifier isPropertyAdded(address propertyAddr) {
         require(propertyRentalStorage.isPropertyAdded(propertyAddr), "Property must be added to set its price.");
+        _;
+    }
+
+    modifier isPropertyListedForRent(address propertyAddr) {
+        require(propertyRentalStorage.isPropertyListedForRent(propertyAddr), "Property must be listed for rent to apply.");
         _;
     }
 
@@ -115,12 +122,20 @@ contract RentalAgreement {
         }
     }
 
-    function listPropertyForRent(address propertyAddr) isPropertyAdded(propertyAddr) public isPropertyOwner(propertyAddr) {
+    function listPropertyForRent(address propertyAddr) isPropertyAdded(propertyAddr) isPropertyOwner(propertyAddr) public  {
         MappingDataTypes.Property memory property = propertyRentalStorage.getProperty(propertyAddr);
         string memory errorMessage = string.concat("Property is in '", propertyStatusToString[property.status], "' status and cannot be listed for rent");
         require(property.status == MappingDataTypes.PropertyStatus.READY_FOR_RENT, errorMessage);
         // list property for rent
         property.status = MappingDataTypes.PropertyStatus.LISTED_FOR_RENT;
+        emit PropertyListedForRent(propertyAddr);
     }
+
+    function applyForRent(address propertyAddr) isPropertyAdded(propertyAddr) isPropertyListedForRent(propertyAddr) public {
+        propertyRentalStorage.applyForRent(propertyAddr, msg.sender);
+        emit AppliedForRent(propertyAddr, msg.sender);
+    }
+
+    
 
 }

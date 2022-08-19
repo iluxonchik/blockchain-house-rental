@@ -3,7 +3,7 @@
 pragma solidity ^0.8.15;
 
 library MappingDataTypes {
-    enum PropertyStatus { AWAITING_PRICE, READY_FOR_RENT, LISTED_FOR_RENT, RENTED }
+    enum PropertyStatus { AWAITING_PRICE, READY_FOR_RENT, LISTED_FOR_RENT, AWAITING_PAYMENT, RENTED }
     
     struct AddressMappingValue {
         address value;
@@ -15,17 +15,18 @@ library MappingDataTypes {
         bool isSet;
     }
 
-    struct Property {
-        address propertyAddr;
-        uint256 monthlyPriceInWei;
-        PropertyStatus status;
-
-    }
-
     struct PropertyApplicant {
         address applicant;
         uint256 applicationTime;
         bool isSet;
+    }
+
+    struct Property {
+        address propertyAddr;
+        uint256 monthlyPriceInWei;
+        PropertyStatus status;
+        PropertyApplicant selectedApplicant;
+        uint256 applicantSelectTime;
     }
 }
 
@@ -48,6 +49,11 @@ contract PropertyRentalStorage {
         _;
     }
 
+    modifier hasApplied(address propertyAddr, address applicantAddr) {
+        require(propertyAddressToPropertyAppplicantsIndex[propertyAddr][applicantAddr].isSet == true, "Address has not applied to rent this property");
+        _;
+    }
+
     modifier notYetApplied(address propertyAddr, address applicantAddr) {
         require(propertyAddressToPropertyAppplicantsIndex[propertyAddr][applicantAddr].isSet == false, "Applicant already applied to rent this property");
         _;
@@ -65,6 +71,9 @@ contract PropertyRentalStorage {
     // allow to acccess propertiesForRent in O(1)
     mapping(address => MappingDataTypes.UintMappingValue) public propertyAddressToPropertiesForRentIndex;
     
+
+    // (property, applicant) address pair to PropertyApplicant mapping
+    mapping(address => mapping(address => MappingDataTypes.PropertyApplicant)) applicantAddrToPropertyApplicant;
     // property address to list of applicants mapping
     mapping(address => MappingDataTypes.PropertyApplicant[]) public propertyApplicants;
     // allow access to property applicants in O(1). order: property address, aplicant address
@@ -73,7 +82,7 @@ contract PropertyRentalStorage {
 
     function _addPropertyToRentalMapping(address propertyAddr, address propertyOwnerAddr) internal notInStorage(propertyAddr) {
         propertyAddressToOriginalOwner[propertyAddr] = MappingDataTypes.AddressMappingValue(propertyOwnerAddr, true);
-        propertiesForRent.push(MappingDataTypes.Property(propertyAddr, 0, MappingDataTypes.PropertyStatus.AWAITING_PRICE));
+        propertiesForRent.push(MappingDataTypes.Property(propertyAddr, 0, MappingDataTypes.PropertyStatus.AWAITING_PRICE, MappingDataTypes.PropertyApplicant(address(0), 0, false), 0));
         uint256 elemIndex = propertiesForRent.length - 1;
         propertyAddressToPropertiesForRentIndex[propertyAddr] = MappingDataTypes.UintMappingValue(elemIndex, true);
     }
@@ -104,6 +113,13 @@ contract PropertyRentalStorage {
         return propertyAddressToPropertiesForRentIndex[propertyAddr].isSet;
     }
 
+    function isPropertyListedForRent(address propertyAddr) public view returns (bool) {
+        if (isPropertyAdded(propertyAddr)) {
+            return getProperty(propertyAddr).status == MappingDataTypes.PropertyStatus.LISTED_FOR_RENT;
+        }
+        return false;
+    }
+
     function addProperty(address propertyAddr, address propertyOwnerAddr) public {
         _addPropertyToRentalMapping(propertyAddr, propertyOwnerAddr);
     }
@@ -124,8 +140,19 @@ contract PropertyRentalStorage {
 
     // applicant applies to rent a property
     function applyForRent(address propertyAddr, address applicantAddr) isInStorage(propertyAddr) isListedForRent(propertyAddr) notYetApplied(propertyAddr, applicantAddr) public {
-        propertyApplicants[propertyAddr].push(MappingDataTypes.PropertyApplicant(applicantAddr, block.timestamp, true));
+        MappingDataTypes.PropertyApplicant memory propertyApplicant = MappingDataTypes.PropertyApplicant(applicantAddr, block.timestamp, true);
+        propertyApplicants[propertyAddr].push(propertyApplicant);
         uint256 elemIndex = propertyApplicants[propertyAddr].length - 1;
         propertyAddressToPropertyAppplicantsIndex[propertyAddr][applicantAddr] = MappingDataTypes.UintMappingValue(elemIndex, true);
+        applicantAddrToPropertyApplicant[propertyAddr][applicantAddr] = propertyApplicant;
+    }
+
+    // landlord selects the applicant. from here on, the applicant has X period of time to make a payment
+    function selectApplicant(address propertyAddr, address applicantAddr) isInStorage(propertyAddr) isListedForRent(propertyAddr) hasApplied(propertyAddr, applicantAddr) public {
+            MappingDataTypes.Property memory property = getProperty(propertyAddr);
+            MappingDataTypes.PropertyApplicant memory selectedPropertyApplicant = applicantAddrToPropertyApplicant[propertyAddr][applicantAddr];
+            property.applicantSelectTime = block.timestamp;
+            property.status = MappingDataTypes.PropertyStatus.AWAITING_PAYMENT;
+            property.selectedApplicant = selectedPropertyApplicant;
     }
 }
