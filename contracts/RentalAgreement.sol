@@ -1,6 +1,6 @@
 //SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.15;
+pragma solidity ^0.8.16;
 
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "./PropertyRentalStorage.sol";
@@ -59,12 +59,13 @@ contract RentalAgreement {
     event PropertyRegisteredForRental(address propertyAddr, address ownerAddr);
     event PropertyListedForRent(address propertyAddr);
     event AppliedForRent(address propertyAddr, address applicantAddr);
+    event ApplicantSelected(address propertyAddr, address applicantAddr);
+    event PropertyRented(address propertyAddr, address tennatAddr);
 
     uint8 constant TOKEN_ID = 0;
     PropertyRentalStorage propertyRentalStorage;
 
-    // TODO: not the right place for this
-    mapping(MappingDataTypes.PropertyStatus => string) internal propertyStatusToString;
+    mapping(address => MappingDataTypes.UintMappingValue) tenantCredit;
 
     modifier isPropertyOwner(address propertyAddr) {
         require(propertyRentalStorage.getPropertyOriginalOwner(propertyAddr) == msg.sender, "Only owner of the proprety can set its monthly rental price.");
@@ -80,16 +81,22 @@ contract RentalAgreement {
         _;
     }
 
+    modifier hasApplied(address propertyAddr, address applicantAddr) {
+        require(propertyRentalStorage.hasApplied(propertyAddr, applicantAddr), "Address has not applied to rent the property.");
+        _;
+    }
+
+    modifier isSelectedApplicant(address propertyAddr, address applicant) {
+        propertyRentalStorage.isSelectedApplicant(propertyAddr, applicant);
+        _;
+    }
+
     constructor() {
         propertyRentalStorage = new PropertyRentalStorage();
-        propertyStatusToString[MappingDataTypes.PropertyStatus.AWAITING_PRICE] = "Awaiting Price";
-        propertyStatusToString[MappingDataTypes.PropertyStatus.READY_FOR_RENT] = "Ready For Rent";
-        propertyStatusToString[MappingDataTypes.PropertyStatus.LISTED_FOR_RENT] = "Listed For Rent";
-        propertyStatusToString[MappingDataTypes.PropertyStatus.RENTED] = "Rented";
         
     }
 
-    // 1. Register a property for rental. This is the first step to do after approving transfer on the ERC-721
+    // 1. Register a property for rental. This is the first step to do after approving transfer on the ERC-721 (landlord)
     function registerPropertyForRental(address propertyAddr) public {
         IERC721 propertyERC721 = IERC721(propertyAddr);
         address currentOwner = propertyERC721.ownerOf(TOKEN_ID);
@@ -107,35 +114,46 @@ contract RentalAgreement {
         emit PropertyRegisteredForRental(propertyAddr, currentOwner);
     }
 
+    // 2. Set the monthly rental price for property (landlord)
     function setPropertyMonthlyRentalPrice(address propertyAddr, uint256 priceInWei) public isPropertyAdded(propertyAddr) isPropertyOwner(propertyAddr)  {
-        // ensure property is listed for rent
-        MappingDataTypes.Property memory property = propertyRentalStorage.getProperty(propertyAddr);
-        if (property.status == MappingDataTypes.PropertyStatus.AWAITING_PRICE) {
-            // no limitations, set the price and mark the property as ready for rent
-            property.monthlyPriceInWei = priceInWei;
-            property.status = MappingDataTypes.PropertyStatus.READY_FOR_RENT;
-        } else if (property.status == MappingDataTypes.PropertyStatus.RENTED) {
-            // TODO: ensure that new price is only sent for 3 months from now on
-        } else {
-            string memory errorMessage = string.concat("Setting price is not allowed when the property is in the '", propertyStatusToString[property.status] , "' state.");
-            revert(errorMessage);
-        }
+        propertyRentalStorage.setPropertyMonthlyRentalPrice(propertyAddr, priceInWei);
     }
 
+    // 3. List property for rent (landlord)
     function listPropertyForRent(address propertyAddr) isPropertyAdded(propertyAddr) isPropertyOwner(propertyAddr) public  {
-        MappingDataTypes.Property memory property = propertyRentalStorage.getProperty(propertyAddr);
-        string memory errorMessage = string.concat("Property is in '", propertyStatusToString[property.status], "' status and cannot be listed for rent");
-        require(property.status == MappingDataTypes.PropertyStatus.READY_FOR_RENT, errorMessage);
-        // list property for rent
-        property.status = MappingDataTypes.PropertyStatus.LISTED_FOR_RENT;
+        propertyRentalStorage.listPropertyForRent(propertyAddr);
         emit PropertyListedForRent(propertyAddr);
     }
 
+    // 4. Apply for rent (tennant)
     function applyForRent(address propertyAddr) isPropertyAdded(propertyAddr) isPropertyListedForRent(propertyAddr) public {
         propertyRentalStorage.applyForRent(propertyAddr, msg.sender);
         emit AppliedForRent(propertyAddr, msg.sender);
     }
 
+    // 5. Select aplicant (landlord)
+    function selectApplicant(address propertyAddr, address applicantAddr) isPropertyOwner(msg.sender) isPropertyAdded(propertyAddr) isPropertyListedForRent(propertyAddr) hasApplied(propertyAddr, applicantAddr) public {
+        propertyRentalStorage.selectApplicant(propertyAddr, applicantAddr);
+        emit ApplicantSelected(propertyAddr, applicantAddr);
+    }
+
+    // 6. Transfer montly rental price + start rent (tennant)
+    function startRent(address propertyAddr) public payable isSelectedApplicant(propertyAddr, msg.sender) {
+        MappingDataTypes.Property memory property = propertyRentalStorage.getProperty(propertyAddr);
+        uint256 credit = 0;
+        if (tenantCredit[msg.sender].isSet) {
+            credit = tenantCredit[msg.sender].value;
+        }
+        uint256 leftover = credit + msg.value - property.monthlyPriceInWei;
+        string memory errorMessage = string.concat("Sum of provided Wei with the credit wei is not enough to cover the monthly rent of property.");
+        require(leftover < 0, errorMessage);
+        tenantCredit[msg.sender].isSet = true;
+        tenantCredit[msg.sender].value += leftover;
+
+        propertyRentalStorage.rentProperty(propertyAddr);
+        emit PropertyRented(propertyAddr, msg.sender);
+        // TODO: emit SBT
+    }
     
 
 }

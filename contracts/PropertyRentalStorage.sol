@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.15;
+pragma solidity ^0.8.16;
 
 library MappingDataTypes {
     enum PropertyStatus { AWAITING_PRICE, READY_FOR_RENT, LISTED_FOR_RENT, AWAITING_PAYMENT, RENTED }
@@ -27,6 +27,7 @@ library MappingDataTypes {
         PropertyStatus status;
         PropertyApplicant selectedApplicant;
         uint256 applicantSelectTime;
+        uint256 rentStartTime;
     }
 }
 
@@ -39,6 +40,8 @@ library MappingDataTypes {
     This contracts abstracts all of the housekeeping required to achieve the goals above.
 */
 contract PropertyRentalStorage {
+    mapping(MappingDataTypes.PropertyStatus => string) public propertyStatusToString;
+
     modifier notInStorage(address propertyAddr) {
         require(propertyAddressToPropertiesForRentIndex[propertyAddr].isSet == false, "Property currently in the list of properties listed for rent. Please remove it first.");
         _;
@@ -49,8 +52,8 @@ contract PropertyRentalStorage {
         _;
     }
 
-    modifier hasApplied(address propertyAddr, address applicantAddr) {
-        require(propertyAddressToPropertyAppplicantsIndex[propertyAddr][applicantAddr].isSet == true, "Address has not applied to rent this property");
+    modifier hasApplicantApplied(address propertyAddr, address applicantAddr) {
+        require(hasApplied(propertyAddr, applicantAddr), "Address has not applied to rent this property");
         _;
     }
 
@@ -62,6 +65,23 @@ contract PropertyRentalStorage {
     modifier isListedForRent(address propertyAddr) {
         require(propertiesForRent[propertyAddressToPropertiesForRentIndex[propertyAddr].value].status == MappingDataTypes.PropertyStatus.LISTED_FOR_RENT, "Property is not listed for rent");
         _;
+    }
+
+    modifier isAwaitingPayment(address propertyAddr) {
+        require(propertiesForRent[propertyAddressToPropertiesForRentIndex[propertyAddr].value].status == MappingDataTypes.PropertyStatus.AWAITING_PAYMENT, "Property is not in awaiting payment state");
+        _;
+    }
+
+    modifier isReadyForRent(address propertyAddr) {
+       require(propertiesForRent[propertyAddressToPropertiesForRentIndex[propertyAddr].value].status == MappingDataTypes.PropertyStatus.READY_FOR_RENT, "Property is not in ready for rent state");
+        _;
+    }
+
+    constructor() {
+        propertyStatusToString[MappingDataTypes.PropertyStatus.AWAITING_PRICE] = "Awaiting Price";
+        propertyStatusToString[MappingDataTypes.PropertyStatus.READY_FOR_RENT] = "Ready For Rent";
+        propertyStatusToString[MappingDataTypes.PropertyStatus.LISTED_FOR_RENT] = "Listed For Rent";
+        propertyStatusToString[MappingDataTypes.PropertyStatus.RENTED] = "Rented";
     }
 
     // map of property address to its owner
@@ -82,7 +102,7 @@ contract PropertyRentalStorage {
 
     function _addPropertyToRentalMapping(address propertyAddr, address propertyOwnerAddr) internal notInStorage(propertyAddr) {
         propertyAddressToOriginalOwner[propertyAddr] = MappingDataTypes.AddressMappingValue(propertyOwnerAddr, true);
-        propertiesForRent.push(MappingDataTypes.Property(propertyAddr, 0, MappingDataTypes.PropertyStatus.AWAITING_PRICE, MappingDataTypes.PropertyApplicant(address(0), 0, false), 0));
+        propertiesForRent.push(MappingDataTypes.Property(propertyAddr, 0, MappingDataTypes.PropertyStatus.AWAITING_PRICE, MappingDataTypes.PropertyApplicant(address(0), 0, false), 0, 0));
         uint256 elemIndex = propertiesForRent.length - 1;
         propertyAddressToPropertiesForRentIndex[propertyAddr] = MappingDataTypes.UintMappingValue(elemIndex, true);
     }
@@ -92,7 +112,7 @@ contract PropertyRentalStorage {
         require(indexToRemove < propertiesForRent.length, "FATAL ERROR: attempting to remove index beyond the size of the array.");
         
         // begin remove properties from list of properties listed for rent
-        MappingDataTypes.Property memory lastProperty = propertiesForRent[propertiesForRent.length - 1];
+        MappingDataTypes.Property storage lastProperty = propertiesForRent[propertiesForRent.length - 1];
         propertiesForRent[indexToRemove] = lastProperty;
         
         // update index of moved property
@@ -115,9 +135,18 @@ contract PropertyRentalStorage {
 
     function isPropertyListedForRent(address propertyAddr) public view returns (bool) {
         if (isPropertyAdded(propertyAddr)) {
-            return getProperty(propertyAddr).status == MappingDataTypes.PropertyStatus.LISTED_FOR_RENT;
+            return _getProperty(propertyAddr).status == MappingDataTypes.PropertyStatus.LISTED_FOR_RENT;
         }
         return false;
+    }
+
+    function hasApplied(address propertyAddr, address applicantAddr) public view returns (bool){
+        return propertyAddressToPropertyAppplicantsIndex[propertyAddr][applicantAddr].isSet;
+    }
+
+    function isSelectedApplicant(address propertyAddr, address applicantAddr) isInStorage(propertyAddr) hasApplicantApplied(propertyAddr, applicantAddr) isAwaitingPayment(propertyAddr) public view returns (bool) {
+        MappingDataTypes.Property storage property = _getProperty(propertyAddr);
+        return property.selectedApplicant.applicant == applicantAddr;
     }
 
     function addProperty(address propertyAddr, address propertyOwnerAddr) public {
@@ -126,6 +155,11 @@ contract PropertyRentalStorage {
 
     function removeProperty(address propertyAddr) public {
         _removePropertyToRentalMapping(propertyAddr);
+    }
+
+    function _getProperty(address propertyAddr) internal view isInStorage(propertyAddr) returns (MappingDataTypes.Property storage) {
+        uint256 index = propertyAddressToPropertiesForRentIndex[propertyAddr].value;
+        return propertiesForRent[index];
     }
 
     function getProperty(address propertyAddr) public view isInStorage(propertyAddr) returns (MappingDataTypes.Property memory) {
@@ -138,6 +172,36 @@ contract PropertyRentalStorage {
         return property.value;
     }
 
+    function listPropertyForRent(address propertyAddr) isInStorage(propertyAddr) isReadyForRent(propertyAddr) public {
+        MappingDataTypes.Property storage property = _getProperty(propertyAddr);
+        // list property for rent
+        property.status = MappingDataTypes.PropertyStatus.LISTED_FOR_RENT;
+        // are resets below needed?
+        property.selectedApplicant.isSet = false;
+        property.applicantSelectTime = 0;
+        property.rentStartTime = 0;
+    }
+
+    function rentProperty(address propertyAddr) public isInStorage(propertyAddr) isListedForRent(propertyAddr) {
+        MappingDataTypes.Property storage property = _getProperty(propertyAddr);
+        property.status = MappingDataTypes.PropertyStatus.RENTED;
+    }
+
+    function setPropertyMonthlyRentalPrice(address propertyAddr, uint256 priceInWei) public {
+        MappingDataTypes.Property storage property = _getProperty(propertyAddr);
+
+        if (property.status == MappingDataTypes.PropertyStatus.AWAITING_PRICE) {
+            // no limitations, set the price and mark the property as ready for rent
+            property.monthlyPriceInWei = priceInWei;
+            property.status = MappingDataTypes.PropertyStatus.READY_FOR_RENT;
+        } else if (property.status == MappingDataTypes.PropertyStatus.RENTED) {
+            // TODO: ensure that new price is only sent for 3 months from now on
+        } else {
+            string memory errorMessage = string.concat("Setting price is not allowed when the property is in the '", propertyStatusToString[property.status] , "' state.");
+            revert(errorMessage);
+        }
+    }
+
     // applicant applies to rent a property
     function applyForRent(address propertyAddr, address applicantAddr) isInStorage(propertyAddr) isListedForRent(propertyAddr) notYetApplied(propertyAddr, applicantAddr) public {
         MappingDataTypes.PropertyApplicant memory propertyApplicant = MappingDataTypes.PropertyApplicant(applicantAddr, block.timestamp, true);
@@ -148,9 +212,9 @@ contract PropertyRentalStorage {
     }
 
     // landlord selects the applicant. from here on, the applicant has X period of time to make a payment
-    function selectApplicant(address propertyAddr, address applicantAddr) isInStorage(propertyAddr) isListedForRent(propertyAddr) hasApplied(propertyAddr, applicantAddr) public {
-            MappingDataTypes.Property memory property = getProperty(propertyAddr);
-            MappingDataTypes.PropertyApplicant memory selectedPropertyApplicant = applicantAddrToPropertyApplicant[propertyAddr][applicantAddr];
+    function selectApplicant(address propertyAddr, address applicantAddr) isInStorage(propertyAddr) isListedForRent(propertyAddr) hasApplicantApplied(propertyAddr, applicantAddr) public {
+            MappingDataTypes.Property storage property = _getProperty(propertyAddr);
+            MappingDataTypes.PropertyApplicant storage selectedPropertyApplicant = applicantAddrToPropertyApplicant[propertyAddr][applicantAddr];
             property.applicantSelectTime = block.timestamp;
             property.status = MappingDataTypes.PropertyStatus.AWAITING_PAYMENT;
             property.selectedApplicant = selectedPropertyApplicant;
