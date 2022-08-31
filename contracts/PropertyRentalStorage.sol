@@ -182,7 +182,7 @@ contract PropertyRentalStorage {
         property.rentStartTime = 0;
     }
 
-    function rentProperty(address propertyAddr) public isInStorage(propertyAddr) isListedForRent(propertyAddr) {
+    function rentProperty(address propertyAddr) public isInStorage(propertyAddr) isAwaitingPayment(propertyAddr) {
         MappingDataTypes.Property storage property = _getProperty(propertyAddr);
         property.status = MappingDataTypes.PropertyStatus.RENTED;
     }

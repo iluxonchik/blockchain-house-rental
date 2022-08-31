@@ -132,12 +132,12 @@ contract RentalAgreement {
     }
 
     // 5. Select aplicant (landlord)
-    function selectApplicant(address propertyAddr, address applicantAddr) isPropertyOwner(msg.sender) isPropertyAdded(propertyAddr) isPropertyListedForRent(propertyAddr) hasApplied(propertyAddr, applicantAddr) public {
+    function selectApplicant(address propertyAddr, address applicantAddr) isPropertyOwner(propertyAddr) isPropertyAdded(propertyAddr) isPropertyListedForRent(propertyAddr) hasApplied(propertyAddr, applicantAddr) public {
         propertyRentalStorage.selectApplicant(propertyAddr, applicantAddr);
         emit ApplicantSelected(propertyAddr, applicantAddr);
     }
 
-    // 6. Transfer montly rental price + start rent (tennant)
+    // 6. Transfer monthly rental price + start rent (tennant)
     function startRent(address propertyAddr) public payable isSelectedApplicant(propertyAddr, msg.sender) {
         MappingDataTypes.Property memory property = propertyRentalStorage.getProperty(propertyAddr);
         uint256 credit = 0;
@@ -146,7 +146,7 @@ contract RentalAgreement {
         }
         uint256 leftover = credit + msg.value - property.monthlyPriceInWei;
         string memory errorMessage = string.concat("Sum of provided Wei with the credit wei is not enough to cover the monthly rent of property.");
-        require(leftover < 0, errorMessage);
+        require(leftover >= 0, errorMessage);
         tenantCredit[msg.sender].isSet = true;
         tenantCredit[msg.sender].value += leftover;
 
